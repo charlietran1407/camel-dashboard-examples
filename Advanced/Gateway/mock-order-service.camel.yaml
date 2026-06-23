@@ -1,0 +1,93 @@
+- rest:
+    id: OrderServiceRest
+    path: /orders
+    get:
+      - id: OrderServiceGetById
+        path: /{id}
+        to:
+          uri: direct
+          parameters:
+            name: epOrderServiceGetById
+- route:
+    id: registerOrderService
+    from:
+      uri: timer
+      parameters:
+        repeatCount: 1
+        timerName: timerRegisterOrderService
+      steps:
+        - setHeader:
+            id: setHeader-2441
+            name: Content-Type
+            constant:
+              expression: application/json
+        - setBody:
+            constant:
+              expression: |
+                {
+                  "ID": "order-service-{{INSTANCE_ID}}",
+                  "Name": "order-service",
+                  "Address": "{{order-service.host}}",
+                  "Meta": {
+                    "basePath": "/cameldash/orders",
+                    "version": "1.0.0"
+                  },
+                  "Check": {
+                      "TTL": "45s",
+                      "DeregisterCriticalServiceAfter": "1m"
+                    },
+                  "Port": {{Server.Port}}
+                }
+        - to:
+            uri: http
+            parameters:
+              httpUri: "{{consul.address:host.docker.internal:8500}}/v1/agent/service/registe\
+                r"
+              httpMethod: PUT
+        - log: "Send service registration through HTTP REST API: ${body}"
+- route:
+    from:
+      uri: direct
+      parameters:
+        name: epOrderServiceGetById
+      steps:
+        - log:
+            id: log-2424
+            message: ${body}
+        - setHeader:
+            id: setHeader-1677
+            constant:
+              expression: "200"
+            name: CamelHttpResponseCode
+        - setHeader:
+            id: setHeader-2416
+            name: Content-type
+            constant:
+              expression: application/json
+        - setBody:
+            id: setBody-2702
+            simple:
+              expression: '{"success": "Service is running"}'
+    id: routeOrderServiceGetById
+- route:
+    id: heartbeatOrderService
+    from:
+      id: from-3369
+      uri: timer
+      parameters:
+        period: "20000"
+        timerName: template
+        delay: "5000"
+      steps:
+        - log:
+            id: log-3519
+            message: ${body}
+        - setBody:
+            constant: ""
+        - to:
+            id: to-1869
+            uri: http
+            parameters:
+              httpUri: "{{consul.address:host.docker.internal:8500}}/v1/agent/check/pass/serv\
+                ice:order-service-{{INSTANCE_ID}}"
+              httpMethod: PUT

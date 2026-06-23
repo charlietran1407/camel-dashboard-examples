@@ -1,0 +1,88 @@
+#camel-dashboard:dependency=dev.langchain4j:langchain4j-google-ai-gemini:1.16.1,org.apache.camel:camel-langchain4j-embeddings:4.20.0,org.apache.camel:camel-langchain4j-embeddingstore:4.20.0
+- rest:
+    id: rest-rag
+    path: /rag
+    post:
+      - id: post-ingest
+        path: /ingest
+        to:
+          uri: direct:rag-ingest
+      - id: post-search
+        path: /search
+        to:
+          uri: direct:rag-search
+- route:
+    id: rag-ingest-route
+    from:
+      uri: direct:rag-ingest
+      steps:
+        - convertBodyTo:
+            id: convert-body-ingest
+            type: java.lang.String
+        - to:
+            id: generate-embedding-ingest
+            uri: langchain4j-embeddings
+            parameters:
+              embeddingModel: "#myEmbeddingModel"
+              embeddingId: my-embeddings
+        - log:
+            id: log-1210
+            message: ${body}
+        - to:
+            id: store-embedding
+            uri: langchain4j-embeddingstore:my-store
+            parameters:
+              embeddingStore: "#myEmbeddingStore"
+              action: ADD
+        - setBody:
+            id: ingest-response
+            constant: Document ingested successfully!
+- route:
+    id: rag-search-route
+    from:
+      uri: direct:rag-search
+      steps:
+        - convertBodyTo:
+            id: convert-body-search
+            type: java.lang.String
+        - to:
+            id: generate-embedding-search
+            uri: langchain4j-embeddings
+            parameters:
+              embeddingModel: "#myEmbeddingModel"
+              embeddingId: my-embeddings
+        - to:
+            id: search-store
+            uri: langchain4j-embeddingstore
+            parameters:
+              embeddingStore: "#myEmbeddingStore"
+              action: SEARCH
+              maxResults: 3
+              returnTextContent: false
+              embeddingStoreId: my-store
+              minScore: 0.0
+        - setBody:
+            expression:
+              groovy:
+                expression: |
+                  def results = []
+                  request.body.each { match ->
+                      results << [
+                          score: match.score(),
+                          text: match.embedded().text()
+                      ]
+                  }
+                  return results
+        - marshal:
+            json: {}
+- beans:
+    - name: myEmbeddingStore
+      type: dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
+    - name: myEmbeddingModel
+      type: dev.langchain4j.model.googleai.GoogleAiEmbeddingModel
+      scriptLanguage: groovy
+      script: |
+        return dev.langchain4j.model.googleai.GoogleAiEmbeddingModel.builder()
+            .apiKey("{{GEMINI_API_KEY}}")
+            .modelName("gemini-embedding-001")
+            .build();

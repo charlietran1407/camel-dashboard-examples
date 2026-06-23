@@ -1,0 +1,129 @@
+services:
+  camel-dashboard:
+    #image: ghcr.io/charlietran1407/camel-dashboard:latest    
+    image: camel-dashboard:latest
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      INSTANCE_ID: ${INSTANCE_ID}  
+      SERVER_PORT: ${SERVER_PORT}
+      DATASOURCE_URL: ${DATASOURCE_URL}
+      DATASOURCE_USERNAME: ${DATASOURCE_USERNAME}
+      DATASOURCE_PASSWORD: ${DATASOURCE_PASSWORD}
+      CAMEL_DASHBOARD_ENCRYPT_KEY: ${CAMEL_DASHBOARD_ENCRYPT_KEY}
+      CAMEL_DASHBOARD_ENCRYPT_SALT: ${CAMEL_DASHBOARD_ENCRYPT_SALT}
+      CAMEL_DASHBOARD_CLUSTER_GROUP: ${CAMEL_DASHBOARD_CLUSTER_GROUP}
+      CAMEL_DASHBOARD_CLUSTER_ENABLED: ${CAMEL_DASHBOARD_CLUSTER_ENABLED}
+      CAMEL_DASHBOARD_CLUSTER_STREAM_KEY: ${CAMEL_DASHBOARD_CLUSTER_STREAM_KEY}
+      CAMEL_DASHBOARD_CLUSTER_CHANNEL: ${CAMEL_DASHBOARD_CLUSTER_CHANNEL}
+      CAMEL_DASHBOARD_LOADER_PATH: ${CAMEL_DASHBOARD_LOADER_PATH}
+      CAMEL_CONTEXT_PATH: ${CAMEL_CONTEXT_PATH}
+      CAMEL_DASHBOARD_MCP_API_KEY: ${CAMEL_DASHBOARD_MCP_API_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL}      
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./libs:/app/libs
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${SERVER_PORT}/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - cameldash-net
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      adminer:
+        condition: service_started
+      jaeger:
+        condition: service_started
+  postgresql:
+    image: postgres:18-trixie
+    restart: unless-stopped
+    shm_size: 128mb
+    volumes:
+      - pg-database-vol:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: cameldash@welcome
+      POSTGRES_USER: cameldash
+    networks:
+      - cameldash-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cameldash"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  adminer:
+    image: adminer:5.4.2
+    restart: unless-stopped
+    ports:
+      - 8383:8080
+    networks:
+      - cameldash-net
+  # ─────────────────────────────────────────────────────────────────────────
+  # Jaeger (Distributed Tracing UI)
+  # ─────────────────────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/jaeger:2.17.0
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+    networks:
+      - cameldash-net
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # OpenTelemetry Collector
+  # ─────────────────────────────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector:0.151.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-config.yaml"]
+    volumes:
+      - ./otel-config.yaml:/etc/otel-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC (App → Collector)
+      - "4318:4318"   # OTLP HTTP  (App → Collector)
+      - "8888:8888"   # Prometheus metrics
+      - "13133:13133" # Health check
+    networks:
+      - cameldash-net
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: cameldash-redis
+    command: redis-server --notify-keyspace-events Ex
+    ports:
+      - "6379:6379"
+    networks:
+      - cameldash-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  cameldash-net:
+    name: cameldash-net
+    driver: bridge
+volumes:
+  pg-database-vol:
