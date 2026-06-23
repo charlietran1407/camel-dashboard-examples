@@ -1,7 +1,6 @@
 services:
   camel-dashboard:
-    #image: ghcr.io/charlietran1407/camel-dashboard:latest    
-    image: camel-dashboard:latest
+    image: ghcr.io/charlietran1407/camel-dashboard:latest
     ports:
       - "${SERVER_PORT}:${SERVER_PORT}"
     environment:
